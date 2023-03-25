@@ -2,9 +2,12 @@ use std::{
     convert::From,
     env,
     fmt::{Debug, Display},
-    ops::{Add, AddAssign, Div, Mul, Sub},
+    io::stdin,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
     vec,
 };
+
+//complex number implementation
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 struct Complex {
     re: f64,
@@ -24,8 +27,7 @@ impl Add for Complex {
 
 impl AddAssign for Complex {
     fn add_assign(&mut self, other: Self) {
-        self.re += other.re;
-        self.im += other.im;
+        *self = *self + other;
     }
 }
 
@@ -40,6 +42,12 @@ impl Sub for Complex {
     }
 }
 
+impl SubAssign for Complex {
+    fn sub_assign(&mut self, other: Self) {
+        *self = *self - other;
+    }
+}
+
 impl Mul for Complex {
     type Output = Self;
 
@@ -48,6 +56,12 @@ impl Mul for Complex {
             re: self.re * other.re - self.im * other.im,
             im: self.re * other.im + self.im * other.re,
         }
+    }
+}
+
+impl MulAssign for Complex {
+    fn mul_assign(&mut self, other: Self) {
+        *self = *self * other;
     }
 }
 
@@ -63,6 +77,14 @@ impl Div for Complex {
     }
 }
 
+impl DivAssign for Complex {
+    fn div_assign(&mut self, other: Self) {
+        *self = *self / other;
+    }
+}
+
+impl Eq for Complex {}
+
 impl PartialOrd for Complex {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         (self.re * self.re + self.im * self.im)
@@ -70,24 +92,41 @@ impl PartialOrd for Complex {
     }
 }
 
+impl Ord for Complex {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.re * self.re + self.im * self.im)
+            .total_cmp(&(other.re * other.re + other.im * other.im))
+    }
+}
+
 impl Display for Complex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.re == 0.0 && self.im == 0.0 {
+    fn fmt(self: &Complex, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let precision = f.precision().unwrap_or(2);
+        let pow_of_10 = 10.0_f64.powi(precision as i32);
+        let val = Complex {
+            re: (self.re * pow_of_10).round() / pow_of_10,
+            im: (self.im * pow_of_10).round() / pow_of_10,
+        };
+        if val.re == 0.0 && val.im == 0.0 {
             f.write_fmt(format_args!("0"))
-        } else if self.im == 0.0 {
-            f.write_fmt(format_args!("{}", self.re))
-        } else if self.re == 0.0 {
-            if self.im == 1.0 {
+        } else if val.im == 0.0 {
+            f.write_fmt(format_args!("{}", val.re))
+        } else if val.re == 0.0 {
+            if val.im == 1.0 {
                 f.write_fmt(format_args!("i"))
-            } else if self.im == -1.0 {
+            } else if val.im == -1.0 {
                 f.write_fmt(format_args!("-i"))
             } else {
-                f.write_fmt(format_args!("{}i", self.im))
+                f.write_fmt(format_args!("{}i", val.im))
             }
-        } else if self.im > 0.0 {
-            f.write_fmt(format_args!("{}+{}i", self.re, self.im))
         } else {
-            f.write_fmt(format_args!("{}{}i", self.re, self.im))
+            if val.im == 1.0 {
+                f.write_fmt(format_args!("({}+i)", val.re))
+            } else if val.im == -1.0 {
+                f.write_fmt(format_args!("({}-i)", val.re))
+            } else {
+                f.write_fmt(format_args!("({}{:+}i)", val.re, val.im))
+            }
         }
     }
 }
@@ -98,72 +137,67 @@ impl From<f64> for Complex {
     }
 }
 
-impl Complex {
-    fn two_dec(&self) -> Complex {
-        let mut x = *self;
-        x.re = (x.re * 100.0).round() / 100.0;
-        x.im = (x.im * 100.0).round() / 100.0;
-        x
-    }
-}
-
-fn get_complex_number(mut string: &str, mut ok: &bool) -> Complex {
-    if string.is_empty() {
-        return Complex { re: 1.0, im: 0.0 };
-    }
-    let mut sign: f64 = 1.0;
-    if string.starts_with("-") {
-        sign = -1.0;
-        string = string.strip_prefix("-").unwrap();
-    } else if string.starts_with("+") {
-        string = string.strip_prefix("+").unwrap();
-    }
-    let val: f64;
-    if !string.starts_with("i") {
-        let unparsed_val = string.split(&['+', '-', 'i']).nth(0).unwrap();
-        let wrapped_val = unparsed_val.parse();
-        match wrapped_val {
-            Ok(value) => {
-                val = value;
-                string = string.strip_prefix(unparsed_val).unwrap();
-            }
-            _ => {
-                ok = &false;
-                val = 0.0
-            }
+impl From<&str> for Complex {
+    //Complex number sum parsing (todo if I care enough: error handling)
+    fn from(mut string: &str) -> Self {
+        let mut ok = &true;
+        if string.is_empty() {
+            return Complex { re: 1.0, im: 0.0 };
         }
-    } else {
-        val = 1.0;
-    }
-    if string.starts_with("i") {
-        string = string.strip_prefix("i").unwrap();
-        if string.is_empty() || !ok {
-            Complex {
-                re: 0.0,
-                im: sign * val,
+        let mut sign: f64 = 1.0;
+        if string.starts_with("-") {
+            sign = -1.0;
+            string = string.strip_prefix("-").unwrap();
+        } else if string.starts_with("+") {
+            string = string.strip_prefix("+").unwrap();
+        }
+        let val: f64;
+        if !string.starts_with("i") {
+            let unparsed_val = string.split(&['+', '-', 'i']).nth(0).unwrap();
+            let wrapped_val = unparsed_val.trim().parse();
+            match wrapped_val {
+                Ok(value) => {
+                    val = value;
+                    string = string.strip_prefix(unparsed_val).unwrap();
+                }
+                _ => {
+                    ok = &false;
+                    val = 0.0
+                }
             }
         } else {
-            Complex {
-                re: 0.0,
-                im: sign * val,
-            } + get_complex_number(string, &ok)
+            val = 1.0;
         }
-    } else {
-        if string.is_empty() || !ok {
-            Complex {
-                re: sign * val,
-                im: 0.0,
+        if string.starts_with("i") {
+            string = string.strip_prefix("i").unwrap();
+            if string.is_empty() || !ok {
+                Complex {
+                    re: 0.0,
+                    im: sign * val,
+                }
+            } else {
+                Complex {
+                    re: 0.0,
+                    im: sign * val,
+                } + Complex::from(string)
             }
         } else {
-            Complex {
-                re: sign * val,
-                im: 0.0,
-            } + get_complex_number(string, &ok)
+            if string.is_empty() || !ok {
+                Complex {
+                    re: sign * val,
+                    im: 0.0,
+                }
+            } else {
+                Complex {
+                    re: sign * val,
+                    im: 0.0,
+                } + Complex::from(string)
+            }
         }
     }
 }
 
-#[derive(Debug)]
+//polynomial implementation
 struct Polynomial {
     coeficients: Vec<Complex>,
 }
@@ -181,7 +215,7 @@ impl Display for Polynomial {
         let mut polynomial = "".to_string();
 
         for i in (0..self.coeficients.len()).rev() {
-            let val = self.coeficients[i].two_dec();
+            let val = self.coeficients[i];
             if val != Complex::default() {
                 if polynomial.is_empty() {
                     if val.re == 1.0 && val.im == 0.0 {
@@ -243,8 +277,115 @@ impl Display for Polynomial {
     }
 }
 
+//bruh, I'm never touching this again unless it's REALLY broken
+impl From<&str> for Polynomial {
+    fn from(mut polynomial_string: &str) -> Polynomial {
+        let mut polynomial = Polynomial::default();
+        let mut sign = 1.0;
+        while !polynomial_string.is_empty() {
+            polynomial_string = polynomial_string.trim_start();
+            if polynomial_string.starts_with("+") {
+                sign = 1.0;
+                polynomial_string = polynomial_string.strip_prefix("+").unwrap();
+            } else if polynomial_string.starts_with("-") {
+                sign = -1.0;
+                polynomial_string = polynomial_string.strip_prefix("-").unwrap();
+            } else if polynomial_string.starts_with("(") {
+                polynomial_string = polynomial_string.strip_prefix("(").unwrap();
+                let val_string = polynomial_string.split(")").nth(0).unwrap();
+                let val = Complex::from(val_string);
+                polynomial_string = polynomial_string
+                    .strip_prefix(val_string)
+                    .unwrap()
+                    .strip_prefix(")")
+                    .unwrap();
+                let mut power: usize = 0;
+                if polynomial_string.starts_with(['x', 'X']) {
+                    polynomial_string = &polynomial_string.strip_prefix(['x', 'X']).unwrap();
+                    power = 1;
+                    if polynomial_string.starts_with("^") {
+                        polynomial_string = polynomial_string.strip_prefix("^").unwrap();
+                        let power_string = polynomial_string.split(['+', '-']).nth(0).unwrap();
+                        power = power_string
+                            .trim()
+                            .parse()
+                            .expect("Error while parsing a power");
+                        polynomial_string = polynomial_string.strip_prefix(power_string).unwrap();
+                    }
+                }
+                polynomial.add0s(power);
+                polynomial.coeficients[power] += val * Complex::from(sign);
+            } else if polynomial_string.starts_with(char::is_numeric) {
+                let val_string = polynomial_string
+                    .split(['x', 'X'])
+                    .nth(0)
+                    .unwrap()
+                    .split(['-', '+'])
+                    .nth(0)
+                    .unwrap();
+                let val = Complex::from(val_string);
+                polynomial_string = polynomial_string.strip_prefix(val_string).unwrap();
+                let mut power: usize = 0;
+                if polynomial_string.starts_with(['x', 'X']) {
+                    polynomial_string = polynomial_string.strip_prefix(['x', 'X']).unwrap();
+                    power = 1;
+                    if polynomial_string.starts_with("^") {
+                        polynomial_string = polynomial_string.strip_prefix("^").unwrap();
+                        let power_string = polynomial_string.split(['+', '-']).nth(0).unwrap();
+                        power = power_string
+                            .trim()
+                            .parse()
+                            .expect("Error while parsing a power");
+                        polynomial_string = polynomial_string.strip_prefix(power_string).unwrap();
+                    }
+                }
+                polynomial.add0s(power);
+                polynomial.coeficients[power] += val * Complex::from(sign);
+            } else if polynomial_string.starts_with(['x', 'X']) {
+                polynomial_string = polynomial_string.strip_prefix(['x', 'X']).unwrap();
+                let mut power: usize = 1;
+                if polynomial_string.starts_with("^") {
+                    polynomial_string = polynomial_string.strip_prefix("^").unwrap();
+                    let power_string = polynomial_string.split(['+', '-']).nth(0).unwrap();
+                    power = power_string
+                        .trim()
+                        .parse()
+                        .expect(format!("Error while parsing a power: {}", power_string).as_str());
+                    polynomial_string = polynomial_string.strip_prefix(power_string).unwrap();
+                }
+                polynomial.add0s(power);
+                polynomial.coeficients[power] += Complex::from(sign);
+            } else if polynomial_string.starts_with("i") {
+                polynomial_string = polynomial_string.strip_prefix("i").unwrap();
+                let mut power: usize = 0;
+                if polynomial_string.starts_with(['x', 'X']) {
+                    polynomial_string = polynomial_string.strip_prefix(['x', 'X']).unwrap();
+                    power = 1;
+                    if polynomial_string.starts_with("^") {
+                        polynomial_string = polynomial_string.strip_prefix("^").unwrap();
+                        let power_string = polynomial_string.split(['+', '-']).nth(0).unwrap();
+                        power = power_string
+                            .trim()
+                            .parse()
+                            .expect("Error while parsing a power");
+                        polynomial_string = polynomial_string.strip_prefix(power_string).unwrap();
+                    }
+                }
+                polynomial.add0s(power);
+                polynomial.coeficients[power] += Complex { re: 0.0, im: sign };
+            } else {
+                panic!(
+                    "Input is invalid; Error is found at ->\"{:.10}\"",
+                    polynomial_string
+                );
+            }
+        }
+        polynomial
+    }
+}
+
 fn show_solutions(solution_list: Vec<Complex>) -> String {
-    let mut result: String = "{ ".to_string();
+    let mut result: String = "".to_string();
     let length: usize;
     if solution_list.len() == 0 {
         return "{}".to_string();
@@ -253,7 +394,7 @@ fn show_solutions(solution_list: Vec<Complex>) -> String {
     for i in 0..length {
         result += format!("{}, ", solution_list[i]).as_str();
     }
-    result += format!("{} }}", solution_list.last().unwrap()).as_str();
+    result += format!("{}", solution_list.last().unwrap()).as_str();
     result
 }
 
@@ -272,7 +413,7 @@ impl Polynomial {
         let mut solution = Complex { re: 0.0, im: 0.0 };
         let mut re = 1e20;
         for _ in 0..150 {
-            let mut im = re;
+            let mut im = 1e20;
             for _ in 0..150 {
                 if self.value_at(solution) > self.value_at(solution + Complex { re, im }) {
                     solution += Complex { re, im };
@@ -331,94 +472,74 @@ impl Polynomial {
     }
     fn add0s(&mut self, new_length: usize) {
         let length = self.coeficients.len();
-        for _ in length..new_length {
+        for _ in length..new_length + 1 {
             self.coeficients.push(Complex::default());
         }
     }
 }
 
 fn main() {
-    let mut polynomial: Polynomial = Polynomial::default();
     let args: Vec<String> = env::args().collect();
-    if args.contains(&"-h".to_string()) {
+    let help = args.contains(&"-h".to_string());
+    let silent = args.contains(&"-s".to_string());
+    if help {
         println!(
             "\
-Standard notation: X^5 + 4X^4 + 3iX^3 - 2+3ix^2 + (i+3)x^2 - x + 1
-Clumped variables act as if they are in a parenthesis, and as such, they are optional"
+Standard notation: X^5 + 4X^4 + 3iX^3 + 3X^2 + (i+3)X^2 - X + 1
+This evaluates to X^5 + 4X^4 + 3iX^3 + (6+i)X^2 - X + 1
+You can either provide the polynomial via command arguments or standard input.
+All spaces get ignored and the X is case insensitive."
         );
         return;
     }
-    let mut ok: bool = true;
-    let mut err: String = "".to_string();
-    let mut sign: f64 = 1.0;
-    for i in 1..args.len() {
-        if args[i] == "-" || args[i] == "+" {
-            if args[i] == "-" {
-                sign = -1.0;
-            } else {
-                sign = 1.0;
-            }
-        } else if args[i].contains("x") || args[i].contains("X") {
-            let mut coeficient = args[i].split(&['x', 'X']).nth(0).unwrap();
-            let power = args[i].split(&['x', 'X']).last().unwrap();
-            let mut powerval: usize = 0;
-            if !power.contains("^") {
-                if !power.is_empty() {
-                    ok = false;
-                    err = ("Invalid power at ").to_owned()
-                        + args[i].as_str()
-                        + "; use ax^k to signify a power";
-                }
-                powerval = 1;
-            } else {
-                let unwrappedval = power.split("^").last().unwrap().parse::<usize>();
-                match unwrappedval {
-                    Ok(val) => powerval = val,
-                    _ => ok = false,
-                };
-            }
-            if coeficient.starts_with("(") {
-                coeficient = coeficient
-                    .strip_prefix("(")
-                    .unwrap()
-                    .strip_suffix(")")
-                    .unwrap();
-            }
-            polynomial.add0s(powerval + 1);
-            polynomial.coeficients[powerval] +=
-                Complex { re: sign, im: 0.0 } * get_complex_number(coeficient, &ok);
-        } else {
-            polynomial.coeficients[0] +=
-                Complex { re: sign, im: 0.0 } * get_complex_number(args[i].as_str(), &ok);
+
+    //getting the polynomial string
+    let mut polynomial_string: String = "".to_string();
+    if args.len() <= 1 {
+        println!("Run the program with -h for more info.\nPlease input the polinomial:");
+        stdin()
+            .read_line(&mut polynomial_string)
+            .expect("Failed to read from stdin.");
+    } else if silent {
+        stdin()
+            .read_line(&mut polynomial_string)
+            .expect("Failed to read from stdin.");
+    } else {
+        polynomial_string = args[1..].concat();
+    }
+    polynomial_string = polynomial_string.trim().to_string();
+
+    //parsing hell that's probably still not working well enough -_-
+    let mut polynomial = Polynomial::from(polynomial_string.as_str());
+
+    polynomial.trim0s();
+
+    //creating the polynomial output string
+    //getting solutions
+    let polynomial_string = format!("{}", polynomial);
+    let mut solutions: Vec<Complex> = vec![];
+    let max_power: usize = polynomial.degree();
+    if !silent {
+        println!("Decomposition steps (horner method):");
+    }
+    for _i in 0..max_power {
+        let solution = polynomial.search_min();
+        solutions.push(solution);
+        polynomial.horner(solution);
+        polynomial.trim0s();
+        if polynomial.coeficients.len() > 1 && !silent {
+            println!("{}", polynomial);
         }
     }
-    polynomial.trim0s();
-    if !ok {
-        if err.is_empty() {
-            println!("Failed to get the term coefficients",)
-        } else {
-            println!("{}", err);
-        }
-    } else {
-        //creating the polynomial output string
-        //getting solutions
-        let polynomial_string = format!("{}", polynomial);
-        let mut solutions: Vec<Complex> = vec![];
-        let max_power: usize = polynomial.degree();
 
-        println!("Horner results:");
-        for i in 0..max_power {
-            let solution = polynomial.search_min();
-            solutions.push(solution);
-            polynomial.horner(solution);
-            polynomial.trim0s();
-            println!("{}", polynomial);
-            solutions[i] = solutions[i].two_dec();
-        }
+    //show the solutions
+    if !silent {
         println!(
-            "The roots of {} are: S = {}",
+            "The roots of {} are: S = {{ {} }}",
             polynomial_string,
             show_solutions(solutions)
         );
+    } else {
+        println!("[ {} ]", show_solutions(solutions));
     }
 }
