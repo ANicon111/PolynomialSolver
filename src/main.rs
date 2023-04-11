@@ -69,7 +69,7 @@ impl Div for Complex {
     type Output = Self;
 
     fn div(self, other: Self) -> Self::Output {
-        let div = other.re * other.re - other.im * other.im;
+        let div = other.re * other.re + other.im * other.im;
         Self {
             re: (self.re * other.re + self.im * other.im) / div,
             im: (self.im * other.re - self.re * other.im) / div,
